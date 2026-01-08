@@ -1,0 +1,58 @@
+ 
+resources:
+- name: source-code
+  type: git
+  source:
+    uri: ssh://git@192.168.50.20:2222/Hamilton/homelab-ansible-hashicorp.git
+    branch: SAAS-45
+    private_key: ((git-private-key)) # from Concourse Vault
+    git_config:
+    - name: core.sshCommand
+      value: "ssh -o StrictHostKeyChecking=no -i /tmp/git-key -p 2222"
+
+
+- name: weekly-trigger
+  type: time
+  source:
+    location: UTC
+    days: [Friday]  # Runs every Friday
+    start: 15:00    # 5 AM ET (9 AM UTC) every Friday
+
+- name: golden-image
+  type: registry-image
+  source:
+    repository: 192.168.50.20:5000/golden-image
+    tag: v2.0
+    username: {{ user_name }}
+    password: {{ user_password }}
+    insecure: true
+
+jobs:
+- name: weekly-system-update
+  plan:
+  - get: source-code
+  - get: weekly-trigger
+    trigger: true
+  - get: golden-image
+  - task: run-ansible
+    image: golden-image
+    config:
+      platform: linux
+      inputs:
+      - name: source-code
+      params:
+        ANSIBLE_HOST_KEY_CHECKING: "False"
+      run:
+        path: sh
+        args:
+        - -exc
+        - |
+
+          # Disable host key checking for all SSH connections
+          export ANSIBLE_SSH_ARGS='-o StrictHostKeyChecking=no'
+          
+          # Run playbook with password authentication
+          cd source-code
+          ansible-playbook \
+            -i homelab/inventory-2.yaml \
+            roles/update-Reboot.yaml
