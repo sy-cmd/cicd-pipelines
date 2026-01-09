@@ -23,8 +23,8 @@ resources:
   source:
     repository: 192.168.50.20:5000/golden-image
     tag: v2.0
-    username: {{ user_name }}
-    password: {{ user_password }}
+    username: ${{ user_name }}
+    password: ${{ user_password }}
     insecure: true
 
 jobs:

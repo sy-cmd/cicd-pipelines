@@ -1,0 +1,87 @@
+name: Nomad Backup to samba
+schedule:
+  - cron: '0 9 * * 5'  # 5 AM ET (9 AM UTC) every Friday
+workflow_dispatch:
+# on: [push]
+
+jobs:
+  backup-nomad:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y smbclient
+
+      - name: Create backup directory
+        run: mkdir -p ./nomad_backup
+
+      - name: Take Nomad snapshot
+        run: |
+         NOMAD_SERVER="192.168.50.11"
+          BACKUP_DIR="./nomad_backup"
+          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+          BACKUP_FILE="${BACKUP_DIR}/nomad_backup_${TIMESTAMP}.snap"
+          TAR_FILE="${BACKUP_DIR}/nomad_backup_${TIMESTAMP}.tar.gz"
+
+          mkdir -p "$BACKUP_DIR"
+          curl -sSf "http://192.168.50.16:4646/v1/operator/snapshot" --output "$BACKUP_FILE"
+
+          if [ ! -s "$BACKUP_FILE" ]; then
+            echo "ERROR: Backup failed - empty file"
+            exit 1
+          fi
+          
+          echo "Backup successful:"
+          ls -lh "$BACKUP_FILE"
+          
+          echo "Snapshot details:"
+          
+          
+          tar -czf "$TAR_FILE" -C "$BACKUP_DIR" $(basename "$BACKUP_FILE")
+          rm "$BACKUP_FILE"
+          
+          echo "Compressed tar created:"
+          ls -lh "$TAR_FILE"
+
+      
+          # Set output and environment variables
+          echo "BACKUP_PATH=$TAR_FILE" >> "$GITHUB_ENV" 
+          echo "backup_file=$TAR_FILE" >> "$GITHUB_OUTPUT" 
+          
+      - name: Upload backup to SMB share
+        run: |
+          SMB_SHARE="//192.168.50.11/Public"
+          SMB_USER= ${{ secrets.SMB_USERNAME }}
+          SMB_PASS= ${{ secrets.SMB_PASSWORD }}
+          BACKUP_FILE="${{ env.BACKUP_PATH }}"
+          BACKUP_NAME="$(basename "$BACKUP_FILE")"
+
+          # Create Nomad directory and upload backup
+          echo " Creating Nomad directory "
+          smbclient "$SMB_SHARE" -U "$SMB_USER%$SMB_PASS" -c "mkdir Nomad" || echo "Directory may already exist"
+
+          echo " Uploading backup "
+          if smbclient "$SMB_SHARE" -U "$SMB_USER%$SMB_PASS" -c "put $BACKUP_FILE Nomad/$BACKUP_NAME"; then
+            echo " Backup successfully uploaded to SMB share"
+          else
+            echo " Failed to upload backup"
+            exit 1
+          fi
+
+          # Verify upload
+          echo " Verifying upload "
+          if smbclient "$SMB_SHARE" -U "$SMB_USER%$SMB_PASS" -c "ls Nomad/$BACKUP_NAME"; then
+            echo " Backup verified on SMB share"
+          else
+            echo " Backup verification failed"
+            exit 1
+          fi
+     
+      - name: Cleanup
+        run: |
+          if [ -f "${{ env.BACKUP_PATH }}" ]; then
+            rm -v "${{ env.BACKUP_PATH }}"
+          fi

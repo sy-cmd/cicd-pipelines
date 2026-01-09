@@ -14,7 +14,7 @@ jobs:
       - name: Install Nomad CLI
         run: |
           # Define the version of Nomad you are using on your cluster
-          NOMAD_VERSION="1.10.5" # <-- **CHANGE THIS to match your actual Nomad version**
+          NOMAD_VERSION="1.10.5" #  **CHANGE this to a recent stable version as needed**
           
           echo "Installing Nomad ${NOMAD_VERSION}..."
           
